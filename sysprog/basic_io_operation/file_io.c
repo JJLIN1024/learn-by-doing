@@ -83,10 +83,66 @@ int main() {
         printf("%c", buf[i]);
     }
 
+    printf("\n");
+
     // close fd for read
     if(close(fd) == -1) {
         perror("close");
     }
 
+    // read test.txt
+    fd = open("test.txt", O_RDONLY);
+    if(fd == -1) {
+        perror("open");
+        return -1;
+    }
+    
+    off_t pos = lseek(fd, 0, SEEK_CUR);
+    if(pos == (off_t)-1) {
+        perror("lseek");
+        return -1;
+    }
+
+    printf("current file position is: %ld\n", pos);
+
+    pos = lseek(fd, 0, SEEK_END);
+    if(pos == (off_t)-1) {
+        perror("lseek");
+        return -1;
+    }
+
+    printf("file end position is: %ld\n", pos);
+ 
+    pos = lseek(fd, (off_t)1234, SEEK_SET);
+    if(pos == (off_t)-1) {
+        perror("lseek");
+        return -1;
+    }
+
+    printf("current file position is: %ld\n", pos);
+
+    // lseek is not thread safe, since threads share file table
+    // solution: use pread & pwrite, pread does not update file position when it is done
+    // now file position is at 1234, so we read another 1024 after it.
+    char buf2[1024];
+    ret = pread(fd, buf2, 1024, pos);
+    if(ret == -1) {
+        perror("pread");
+        return -1;
+    }
+
+    pos = lseek(fd, 0, SEEK_CUR);
+    if(pos == (off_t)-1) {
+        perror("lseek");
+        return -1;
+    }
+
+    printf("current file position after pread 1024 bytes is: %ld\n", pos);
+
+    for(size_t i = 0; i < 1024; i++) {
+        printf("%c", buf2[i]);
+    }
+
+    printf("\n");
     return 0;
 }
