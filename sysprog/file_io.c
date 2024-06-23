@@ -38,6 +38,26 @@ int main() {
         m_ptr += ret;
     }
     
+    // fdatasync only writes data and essential meta back to disk
+    // while fsync writes both data and inode back to disk, which
+    // is more expensive. One can use O_SYNC to open the file, to 
+    // force every write operation to be syncronized.
+    ret = fdatasync(fd);
+    // ret = fsync(fd);
+    if(ret == -1) {
+        perror("fail to write file back to disk");
+        return -1;
+    }
+
+    // sync() will flush all buffers, not just file corresponding to fd, to the disk
+    // which is way more expensive than fsync();
+    // sync();
+
+    // close fd for write
+    if(close(fd) == -1) {
+        perror("close");
+    }
+    
     fd = open("random_text.txt", O_RDONLY);
     if(fd == -1) {
         perror("fail to read file");
@@ -61,6 +81,11 @@ int main() {
     
     for(size_t i = 0; i < message_len; i++) {
         printf("%c", buf[i]);
+    }
+
+    // close fd for read
+    if(close(fd) == -1) {
+        perror("close");
     }
 
     return 0;
