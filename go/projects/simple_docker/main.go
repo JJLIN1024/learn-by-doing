@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 func main() {
@@ -23,6 +24,10 @@ func parent() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+	}
+
 	if err := cmd.Run(); err != nil {
 		fmt.Println("Error: ", err)
 		os.Exit(1)
@@ -30,6 +35,8 @@ func parent() {
 }
 
 func child() {
+	syscall.Sethostname([]byte("mini-docker"))
+
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
