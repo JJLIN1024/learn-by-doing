@@ -8,15 +8,15 @@ A minimalist container runtime implementation in Go. This project demystifies th
 
 ### Phase 1: The Skeleton (Process Isolation)
 - [x] Implement the "Re-execution" pattern (`/proc/self/exe`) to fork the Go process.
-- [ ] **TODO:** Enable **Namespaces** via `syscall.SysProcAttr`:
+- [x] Enable **Namespaces** via `syscall.SysProcAttr`:
     - `CLONE_NEWUTS`: Hostname isolation.
     - `CLONE_NEWPID`: Process ID isolation (Process becomes PID 1).
     - `CLONE_NEWNS`: Mount namespace isolation.
-- [ ] **TODO:** Verify isolation by running `ps` inside the container (should see only a few processes).
+- [x] Verify isolation by running `ps` inside the container (should see only a few processes).
 
 ### Phase 2: The Filesystem (RootFS)
-- [ ] **TODO:** Prepare a minimal RootFS (e.g., Alpine Linux export).
-- [ ] **TODO:** Implement `pivot_root` syscall to swap the OS root directory.
+- [x] Prepare a minimal RootFS (e.g., Alpine Linux export).
+- [ ] Implement `pivot_root` syscall to swap the OS root directory.
 - [ ] **TODO:** Mount critical virtual filesystems:
     - `mount -t proc proc /proc` (Required for `ps` to work).
     - `mount -t tmpfs tmpfs /dev`
