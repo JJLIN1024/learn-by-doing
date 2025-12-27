@@ -24,8 +24,11 @@ func parent() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
+	// CLONE_NEWNS : name space, for file mounting
+	// CLONE_NEWUTS: Unix Timesharing System, for hostname
+	// CLONE_NEWPID: for process
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID | syscall.CLONE_NEWNS,
+		Cloneflags: syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID,
 	}
 
 	if err := cmd.Run(); err != nil {
@@ -35,7 +38,13 @@ func parent() {
 }
 
 func child() {
-	syscall.Sethostname([]byte("mini-docker"))
+	must(syscall.Sethostname([]byte("mini-docker")))
+	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
+
+	must(syscall.Chroot("./rootfs"))
+	must(os.Chdir("/"))
+
+	must(syscall.Mount("proc", "/proc", "proc", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC, "")) // source, target, fstype, flags, args
 
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
