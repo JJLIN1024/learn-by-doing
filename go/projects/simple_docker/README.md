@@ -29,14 +29,13 @@ A minimalist container runtime implementation in Go. This project demystifies th
     - **CPU:** Limit CPU shares/quota.
     - **PIDs:** Limit maximum number of processes to prevent fork bombs.
 
-### Phase 4: Networking (The "Plumbing")
+### Phase 4: Networking
 - [ ] **TODO:** Create a `veth` pair (Virtual Ethernet) connecting Host and Container.
 - [ ] **TODO:** Move one end into the Container's Network Namespace (`CLONE_NEWNET`).
 - [ ] **TODO:** Assign IP addresses and set up `iptables` NAT for external access.
 
-### Phase 5: Observability (System Metrics)
-- [ ] **TODO:** **Metrics Exporter:** Read from `/sys/fs/cgroup/...` to show real-time CPU/Mem usage.
-- [ ] **TODO:** **Syscall Tracking:** Use `ptrace` or eBPF to monitor container activity.
+### Phase 5: Layered File System
+- [ ]  **TODO:** 建立 lowerdir (唯讀的 Base Image), upperdir (可寫層), workdir (OverlayFS 運作所需)。將它們合併掛載到 ./rootfs。
 ---
 
 ## Getting Started

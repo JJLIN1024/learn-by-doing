@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 )
 
@@ -41,8 +42,18 @@ func child() {
 	must(syscall.Sethostname([]byte("mini-docker")))
 	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
 
-	must(syscall.Chroot("./rootfs"))
+	rootfs := "./rootfs"
+	must(syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""))
+
+	oldRoot := filepath.Join(rootfs, ".old_root")
+	must(os.MkdirAll(oldRoot, 0700))
+
+	must(syscall.PivotRoot(rootfs, oldRoot))
+
 	must(os.Chdir("/"))
+
+	must(syscall.Unmount("/.old_root", syscall.MNT_DETACH))
+	must(os.Remove("/.old_root"))
 
 	must(syscall.Mount("proc", "/proc", "proc", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC, "")) // source, target, fstype, flags, args
 
