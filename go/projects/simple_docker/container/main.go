@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 )
 
@@ -45,15 +44,18 @@ func child() {
 	rootfs := "./rootfs"
 	must(syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""))
 
-	oldRoot := filepath.Join(rootfs, ".old_root")
-	must(os.MkdirAll(oldRoot, 0700))
+	oldRootFd, err := syscall.Open("/", syscall.O_DIRECTORY|syscall.O_RDONLY, 0)
+	if err != nil {
+		panic(err)
+	}
+	defer syscall.Close(oldRootFd)
 
-	must(syscall.PivotRoot(rootfs, oldRoot))
-
+	must(os.Chdir(rootfs))
+	must(syscall.PivotRoot(".", "."))
+	must(syscall.Fchdir(oldRootFd))
+	must(syscall.Mount("", ".", "", syscall.MS_SLAVE|syscall.MS_REC, ""))
+	must(syscall.Unmount(".", syscall.MNT_DETACH))
 	must(os.Chdir("/"))
-
-	must(syscall.Unmount("/.old_root", syscall.MNT_DETACH))
-	must(os.Remove("/.old_root"))
 
 	must(syscall.Mount("proc", "/proc", "proc", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC, "")) // source, target, fstype, flags, args
 

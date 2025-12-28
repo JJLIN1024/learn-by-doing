@@ -342,13 +342,21 @@ Library       Volumes  boot  etc  lib   media  opt  proc     run   srv   tmp  va
 
 舉例：
 
-* **current root**: `/`
-* **old_root**: `/rootfs/.old_root`
-* **new_root**: `/rootfs`
+狀態：
+* current root: `/`
+* old root: `/some_old_root_dir`
+
+參數：
+* `old_root`: `/rootfs/.old_root`
+* `new_root`: `/rootfs`
 
 執行 `syscall.PivotRoot(new_root, old_root)` 後：
 
-root 位置會切換到 `/rootfs`，而原本的 `/` 會變成對應 `old_root`，所以我們 unmount `old_root` 時，就會把舊的 root 給 unmount 掉，jail break 就無處可去了。
+狀態：
+* current root: `/rootfs`
+* old root: `/`
+
+此時，old root 被掛在哪裡？掛在參數 `old_root` 指定的地方，也就是 `/rootfs/.old_root`。所以我們 unmount `old_root` 時，就會把 old root(`/`) 給 unmount 掉，jail break 就會失敗，因為沒有地方可以回去了。
 
 ```go
 func child() {
@@ -400,3 +408,126 @@ breakout    etc         jail-break  media       opt         root        sbin    
 > 可以觀察到，這次我們看不到 host 的 directory 了，代表 jail break 失敗
 
 
+## runc - pivotRoot
+
+- [runc - rootfs_linux.go - pivotRoot](https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go#L1123)
+
+我們來看看 production 等級（`runc`）的 pivot root 是如何做的：
+
+首先，關於 `unix.PivotRoot(".", ".")`，為何 `runc` 不需要建立一個放 old root 的 directory 就可以直接 pivot root? 答案就在註解中：`... this results in is / being the new root but /proc/self/cwd being the old root ...`。
+
+在執行 `unix.PivotRoot(".", ".")` 的當下，首先第一個參數 `.`（`rootfs`） 被處理，所以 process 的 root 會切換成 `newroot`（`rootfs`），接著，處理第二個參數時，此時新的 root 位於 rootfs，舊的 root 則是 `/proc/self/cwd`，因此 `/proc/self/cwd` 會被掛到 `.` 底下。
+
+到此為止，新和舊的 root 都被 mount 在 `.` 下，而目前的 current working directory 根據 kernel code，會是 `oldroot`，但 `runc` 為了保險起見還是顯示的 `unix.Fchdir(oldroot)` 一次。
+
+接著，設定 `unix.MS_SLAVE` 避免 unmount 到 host。最後 `unmount(".", unix.MNT_DETACH)`。為何這裡可以直接 unmount `.`？因為掛載操作遵守 `LIFO`(Last-In, First-Out)，在執行 `unix.PivotRoot(".", ".")` 時舊的 root 比較晚才被掛起來。
+
+```go
+
+// pivotRoot will call pivot_root such that rootfs becomes the new root
+// filesystem, and everything else is cleaned up.
+func pivotRoot(rootfs string) error {
+	// While the documentation may claim otherwise, pivot_root(".", ".") is
+	// actually valid. What this results in is / being the new root but
+	// /proc/self/cwd being the old root. Since we can play around with the cwd
+	// with pivot_root this allows us to pivot without creating directories in
+	// the rootfs. Shout-outs to the LXC developers for giving us this idea.
+
+	oldroot, err := linux.Open("/", unix.O_DIRECTORY|unix.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(oldroot)
+
+	newroot, err := linux.Open(rootfs, unix.O_DIRECTORY|unix.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(newroot)
+
+	// Change to the new root so that the pivot_root actually acts on it.
+	if err := unix.Fchdir(newroot); err != nil {
+		return &os.PathError{Op: "fchdir", Path: "fd " + strconv.Itoa(newroot), Err: err}
+	}
+
+	if err := unix.PivotRoot(".", "."); err != nil {
+		return &os.PathError{Op: "pivot_root", Path: ".", Err: err}
+	}
+
+	// Currently our "." is oldroot (according to the current kernel code).
+	// However, purely for safety, we will fchdir(oldroot) since there isn't
+	// really any guarantee from the kernel what /proc/self/cwd will be after a
+	// pivot_root(2).
+
+	if err := unix.Fchdir(oldroot); err != nil {
+		return &os.PathError{Op: "fchdir", Path: "fd " + strconv.Itoa(oldroot), Err: err}
+	}
+
+	// Make oldroot rslave to make sure our unmounts don't propagate to the
+	// host (and thus bork the machine). We don't use rprivate because this is
+	// known to cause issues due to races where we still have a reference to a
+	// mount while a process in the host namespace are trying to operate on
+	// something they think has no mounts (devicemapper in particular).
+	if err := mount("", ".", "", unix.MS_SLAVE|unix.MS_REC, ""); err != nil {
+		return err
+	}
+	// Perform the unmount. MNT_DETACH allows us to unmount /proc/self/cwd.
+	if err := unmount(".", unix.MNT_DETACH); err != nil {
+		return err
+	}
+
+	// Switch back to our shiny new root.
+	if err := unix.Chdir("/"); err != nil {
+		return &os.PathError{Op: "chdir", Path: "/", Err: err}
+	}
+	return nil
+}
+```
+
+看完了 `runc` 如何處理 pivotRoot 後，我們來改一下原本的實作：
+
+```go
+func child() {
+	must(syscall.Sethostname([]byte("mini-docker")))
+	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
+
+	rootfs := "./rootfs"
+	must(syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""))
+
+	// change start
+	oldRootFd, err := syscall.Open("/", syscall.O_DIRECTORY|syscall.O_RDONLY, 0)
+	if err != nil {
+		panic(err)
+	}
+	defer syscall.Close(oldRootFd)
+
+	must(os.Chdir(rootfs))
+	must(syscall.PivotRoot(".", "."))
+	must(syscall.Fchdir(oldRootFd))
+	must(syscall.Mount("", ".", "", syscall.MS_SLAVE|syscall.MS_REC, ""))
+	must(syscall.Unmount(".", syscall.MNT_DETACH))
+	must(os.Chdir("/"))
+	// change end
+
+	must(syscall.Mount("proc", "/proc", "proc", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC, "")) // source, target, fstype, flags, args
+
+	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		fmt.Println("ERROR", err)
+		os.Exit(1)
+	}
+}
+```
+
+按照一樣方法測試後，確認 jail break 失敗！
+
+
+## Control Group
+
+- [Control Group v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)
+- [runc - rootfs_linux.go](https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go)
+- [runc - container_linux.go](https://github.com/opencontainers/runc/blob/main/libcontainer/container_linux.go)
