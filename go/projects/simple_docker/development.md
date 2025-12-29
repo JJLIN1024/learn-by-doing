@@ -600,8 +600,24 @@ struct task_struct {
 	// ...
 } __attribute__ ((aligned (64)));
 ```
+> `cgroups` 為指標，指向該 `task_struct` 所屬的 Cgroup 集合。
+> `cg_list` 讓 `css_set` 可以把所有屬於它的 `task_struct` 串在一起。
+
+### list_head
+
+[list_head](https://elixir.bootlin.com/linux/v6.18.2/source/include/linux/types.h#L199) 的 source code 如下：
+
+```c
+struct list_head {
+	struct list_head *next, *prev;
+};
+```
+
+### css_set
 
 [struct css_set](https://elixir.bootlin.com/linux/v6.18.2/source/include/linux/cgroup-defs.h#L272) 的 source code 如下：
+
+因為同一個 control group 裡不同 `task_struct` 共享同一個 `css_set`，比如說一個使用 Docker Container 建立的 web server，會有成千上萬的 process 都屬於同一個 control group。若每一個 process 都自己維護自己的 control group 資訊，會很沒有效率(`fork()` 會變很慢)。若改成每個 process 只維護一個 `css_set` 指標，事情就變得簡單許多。
 
 ```c
 /*
@@ -718,3 +734,23 @@ Process A (task_struct)
                                    +------------------------------------------+
 ```
 > 同個 control group 底下的 process 共享同一個 css_set
+
+
+```
+[ Process A (task_struct) ]      [ Process B (task_struct) ]
++-----------------------+        +-----------------------+
+| cgroups pointer    ---|---+    | cgroups pointer    ---|---+ (指向同一個 css_set)
+| cg_list (node)     <--|-| |--->| cg_list (node)     <--|-|
++-----------------------+ | |    +-----------------------+ |
+                          | |                              |
+                          v v                              |
+                 +-----------------------------+           |
+                 |      css_set (Set 1)        | <---------+
+                 |-----------------------------|
+                 | tasks list_head             |----> 指向 A 和 B 的 cg_list
+                 |-----------------------------|
+                 | pointers to cgroups:        |
+                 |  - CPU: /user               |
+                 |  - Mem: /user               |
+                 +-----------------------------+
+```
