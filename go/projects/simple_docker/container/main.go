@@ -38,6 +38,14 @@ func parent() {
 }
 
 func child() {
+	// cgroup v2 setting start
+	cgroupPath := "/sys/fs/cgroup/mini-docker"
+	os.MkdirAll(cgroupPath, 0755)
+
+	must(os.WriteFile(cgroupPath+"/cpu.max", []byte("10000 100000"), 0644))
+	must(os.WriteFile(cgroupPath+"/cgroup.procs", []byte("0"), 0644))
+	// cgroup v2 setting end
+
 	must(syscall.Sethostname([]byte("mini-docker")))
 	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
 

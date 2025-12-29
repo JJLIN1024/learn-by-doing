@@ -411,6 +411,8 @@ breakout    etc         jail-break  media       opt         root        sbin    
 ## runc - pivotRoot
 
 - [runc - rootfs_linux.go - pivotRoot](https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go#L1123)
+- [runc - rootfs_linux.go](https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go)
+- [runc - container_linux.go](https://github.com/opencontainers/runc/blob/main/libcontainer/container_linux.go)
 
 我們來看看 production 等級（`runc`）的 pivot root 是如何做的：
 
@@ -529,5 +531,54 @@ func child() {
 ## Control Group
 
 - [Control Group v2](https://docs.kernel.org/admin-guide/cgroup-v2.html)
-- [runc - rootfs_linux.go](https://github.com/opencontainers/runc/blob/main/libcontainer/rootfs_linux.go)
-- [runc - container_linux.go](https://github.com/opencontainers/runc/blob/main/libcontainer/container_linux.go)
+
+### CPU
+
+目前我們的 mini-docker 是還沒有設定任何 control group 的，代表，它和 host 的資源是共享的。我們先來試試看把 CPU 打爆：
+
+```shell
+jjlin@ubuntu:~/learn-by-doing/go/projects/simple_docker$ sudo ./mini-docker run /bin/sh
+/ # while true; do true; done
+```
+
+開另一個 shell 觀察，可以看到， mini-docker 執行的 `/bin/sh` 的 CPU% 衝到了 100%：
+```shell
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND                   
+  12837 root      20   0  417100   1748    848 R 100.0   0.0   1:18.34 sh  
+```
+
+現在，我們來為這個 mini-docker 加上 CPU 的使用限制，我們設定每 100ms 的週期內，mini-docker 只能使用 10ms。週期通常建議的預設值就是 100ms，太小的話 kernel 會報錯。
+
+`cgroup.procs` 裡放的是屬於此 cgroup 的 PID，且任何子行程都會屬於同個 cgroup，受到同樣的限制。同一個 cgroup 中的所有 process 共享這 10% CPU 的配額。
+
+```go
+func child() {
+	// cgroup v2 setting start
+	cgroupPath := "/sys/fs/cgroup/mini-docker"
+	os.MkdirAll(cgroupPath, 0755)
+
+	must(os.WriteFile(cgroupPath+"/cpu.max", []byte("10000 100000"), 0644)) // MAX(μs) PERIOD(μs)
+	must(os.WriteFile(cgroupPath+"/cgroup.procs", []byte("0"), 0644)) // 0 -> current process
+	// cgroup v2 setting end
+
+	must(syscall.Sethostname([]byte("mini-docker")))
+	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
+	// ...
+}
+```
+
+再測試一遍，可以看到 mini-docker 執行的 `/bin/sh` 的 CPU% 降到了 10%，符合預期：
+
+```shell
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND                   
+  14531 root      20   0  417096   2468   1572 R  10.0   0.0   0:01.44 sh  
+```
+
+同時跑兩個 process（`while true; do true; done & while true; do true; done`），可以觀察到他們共同吃滿了這 10%：
+
+```shell
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND                   
+  14531 root      20   0  417124   2044   1104 R   5.6   0.0   0:02.83 sh                        
+  14901 root      20   0  417124   1872    932 R   4.3   0.0   0:00.52 sh   
+```
+
