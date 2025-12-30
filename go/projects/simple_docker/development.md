@@ -754,3 +754,33 @@ Process A (task_struct)
                  |  - Mem: /user               |
                  +-----------------------------+
 ```
+
+
+## Overlay Filesystem
+
+### Before using Overlay Filesystem
+
+目前我們的 mini-docker 是共用同一個 rootfs，沒有做任何隔離，因此若起兩個 mini-docker，並做寫入，會同時在兩個 mini-docker 內都可見。
+
+```shell
+jjlin@ubuntu:~/learn-by-doing/go/projects/simple_docker$ sudo ./mini-docker run /bin/sh
+/ # touch test.txt
+/ # ls
+bin         etc         lib         opt         run         sys         usr
+breakout    home        media       proc        sbin        test.txt    var
+dev         jail-break  mnt         root        srv         tmp
+```
+> create test.txt in the first mini-docker
+
+```shell
+jjlin@ubuntu:~/learn-by-doing/go/projects/simple_docker$ sudo ./mini-docker run /bin/sh
+
+/ # 
+/ # ls
+bin         etc         lib         opt         run         sys         usr
+breakout    home        media       proc        sbin        test.txt    var
+dev         jail-break  mnt         root        srv         tmp
+```
+> the second mini-docker can see this test.txt
+
+### Overlay Filesystem
