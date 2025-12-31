@@ -59,5 +59,7 @@ dkms.conf
 .tmp*
 # docker rootfs
 rootfs/
+# docker overlay
+overlay/
 # open source
 open-source/
