@@ -23,3 +23,11 @@ A minimalist container runtime implementation in Go. This project demystifies th
 - [ ] Assign IP addresses and set up `iptables` NAT for external access.
 - [x] 建立 lowerdir (唯讀的 Base Image), upperdir (可寫層), workdir (OverlayFS 運作所需)。將它們合併掛載到 ./rootfs。
     - [ ] explore linux kernel overlay module and its mechanism
+- [ ] 完善的 PID 1 (Init Process) 處理
+    - [ ] 在 pivot_root 之後，不直接 exec 用戶指令，而是寫一個簡單的 init 迴圈，負責轉發信號 (Signals) 並回收孤兒進程 (Reap zombies)。
+- [ ] 使用者命名空間 (User Namespaces) - Rootless Containers
+    - [ ] 加入 syscall.CLONE_NEWUSER，並設定 uid_map 和 gid_map
+- [ ] 支援 OCI Image Bundle (不僅僅是目錄)，實作簡單的 Image Puller
+    - [ ] 下載 Image Tarball (例如從 Docker Hub 抓取 alpine 的 layers)。
+    - [ ] 解壓縮到不同的目錄 (layer1, layer2...)。
+    - [ ] 在 setupOverlay 中，lowerdir 可以支援多個目錄，用冒號分隔：lowerdir=layer2:layer1
