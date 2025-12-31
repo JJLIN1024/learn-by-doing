@@ -1,11 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 type Config struct {
@@ -66,8 +68,12 @@ Note:
 }
 
 func parent() {
+
+	containerID := generateID()
+	containerPath := filepath.Join(containerCfg.OverlayDir, containerID)
+
 	fmt.Printf("[*] Spawning child process with namespaces...\n")
-	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
+	cmd := exec.Command("/proc/self/exe", append([]string{"child", containerPath}, os.Args[2:]...)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -76,13 +82,21 @@ func parent() {
 		Cloneflags: syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWPID,
 	}
 
-	if err := cmd.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "[-] Parent failed: %v\n", err)
+	err := cmd.Run()
+
+	fmt.Printf("\n[*] Container %s exited. Cleaning up files...\n", containerID)
+	cleanup(containerPath)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[-] Container exited with error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func child() {
+	containerID := os.Args[2]
+	containerPath := filepath.Join(containerCfg.OverlayDir, containerID)
+
 	must(syscall.Sethostname([]byte(containerCfg.Hostname)))
 	must(syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_SLAVE, "")) // MS_SLAVE => Unidirectional, MS_PRIVATE => Isolate
 
@@ -91,14 +105,14 @@ func child() {
 	setupCgroup()
 
 	fmt.Printf("[+] Setting up OverlayFS at %s...\n", containerCfg.OverlayDir)
-	mergedDir := setupOverlay()
+	mergedDir := setupOverlay(containerPath)
 
 	fmt.Printf("[+] Executing PivotRoot...\n")
 	pivotRoot(mergedDir)
 	must(syscall.Mount("proc", "/proc", "proc", syscall.MS_RDONLY|syscall.MS_NOSUID|syscall.MS_NOEXEC, ""))
 
 	fmt.Printf("[*] --- Container Running ---\n\n")
-	cmd := exec.Command(os.Args[2], os.Args[3:]...)
+	cmd := exec.Command(os.Args[3], os.Args[4:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -109,10 +123,12 @@ func child() {
 	}
 }
 
-func setupOverlay() string {
-	upper := filepath.Join(containerCfg.OverlayDir, "upper")
-	work := filepath.Join(containerCfg.OverlayDir, "work")
-	merged := filepath.Join(containerCfg.OverlayDir, "merged")
+func setupOverlay(containerPath string) string {
+	must(os.MkdirAll(containerPath, 0755))
+
+	upper := filepath.Join(containerPath, "upper")
+	work := filepath.Join(containerPath, "work")
+	merged := filepath.Join(containerPath, "merged")
 
 	must(os.MkdirAll(upper, 0755))
 	must(os.MkdirAll(work, 0755))
@@ -142,6 +158,18 @@ func pivotRoot(newRoot string) {
 	must(syscall.Mount("", ".", "", syscall.MS_SLAVE|syscall.MS_REC, ""))
 	must(syscall.Unmount(".", syscall.MNT_DETACH))
 	must(os.Chdir("/"))
+}
+
+func generateID() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return fmt.Sprintf("%d-%x", time.Now().Unix()%10000, b)
+}
+
+func cleanup(path string) {
+	merged := filepath.Join(path, "merged")
+	syscall.Unmount(merged, syscall.MNT_DETACH)
+	os.RemoveAll(path)
 }
 
 func must(err error) {
