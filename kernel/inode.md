@@ -81,9 +81,86 @@ typedef struct {
 
 ## inode_operations
 
+各個檔案系統（e.g. ext4, btrfs, ...）各自實作。
+
+```c
+struct inode_operations {
+	struct dentry * (*lookup) (struct inode *,struct dentry *, unsigned int);
+	const char * (*get_link) (struct dentry *, struct inode *, struct delayed_call *);
+	int (*permission) (struct mnt_idmap *, struct inode *, int);
+	struct posix_acl * (*get_inode_acl)(struct inode *, int, bool);
+
+	int (*readlink) (struct dentry *, char __user *,int);
+
+	int (*create) (struct mnt_idmap *, struct inode *,struct dentry *,
+		       umode_t, bool);
+	int (*link) (struct dentry *,struct inode *,struct dentry *);
+	int (*unlink) (struct inode *,struct dentry *);
+	int (*symlink) (struct mnt_idmap *, struct inode *,struct dentry *,
+			const char *);
+	struct dentry *(*mkdir) (struct mnt_idmap *, struct inode *,
+				 struct dentry *, umode_t);
+	int (*rmdir) (struct inode *,struct dentry *);
+	int (*mknod) (struct mnt_idmap *, struct inode *,struct dentry *,
+		      umode_t,dev_t);
+	int (*rename) (struct mnt_idmap *, struct inode *, struct dentry *,
+			struct inode *, struct dentry *, unsigned int);
+	int (*setattr) (struct mnt_idmap *, struct dentry *, struct iattr *);
+	int (*getattr) (struct mnt_idmap *, const struct path *,
+			struct kstat *, u32, unsigned int);
+// ...
+}
+```
+
 ## super_block 
+
 
 
 ## address_space
 
 
+```c
+/**
+ * struct address_space - Contents of a cacheable, mappable object.
+ * @host: Owner, either the inode or the block_device.
+ * @i_pages: Cached pages.
+ * @invalidate_lock: Guards coherency between page cache contents and
+ *   file offset->disk block mappings in the filesystem during invalidates.
+ *   It is also used to block modification of page cache contents through
+ *   memory mappings.
+ * @gfp_mask: Memory allocation flags to use for allocating pages.
+ * @i_mmap_writable: Number of VM_SHARED, VM_MAYWRITE mappings.
+ * @nr_thps: Number of THPs in the pagecache (non-shmem only).
+ * @i_mmap: Tree of private and shared mappings.
+ * @i_mmap_rwsem: Protects @i_mmap and @i_mmap_writable.
+ * @nrpages: Number of page entries, protected by the i_pages lock.
+ * @writeback_index: Writeback starts here.
+ * @a_ops: Methods.
+ * @flags: Error bits and flags (AS_*).
+ * @wb_err: The most recent error which has occurred.
+ * @i_private_lock: For use by the owner of the address_space.
+ * @i_private_list: For use by the owner of the address_space.
+ * @i_private_data: For use by the owner of the address_space.
+ */
+struct address_space {
+	struct inode		*host;
+	struct xarray		i_pages;
+	struct rw_semaphore	invalidate_lock;
+	gfp_t			gfp_mask;
+	atomic_t		i_mmap_writable;
+#ifdef CONFIG_READ_ONLY_THP_FOR_FS
+	/* number of thp, only for non-shmem files */
+	atomic_t		nr_thps;
+#endif
+	struct rb_root_cached	i_mmap;
+	unsigned long		nrpages;
+	pgoff_t			writeback_index;
+	const struct address_space_operations *a_ops;
+	unsigned long		flags;
+	errseq_t		wb_err;
+	spinlock_t		i_private_lock;
+	struct list_head	i_private_list;
+	struct rw_semaphore	i_mmap_rwsem;
+	void *			i_private_data;
+} __attribute__((aligned(sizeof(long)))) __randomize_layout;
+```
