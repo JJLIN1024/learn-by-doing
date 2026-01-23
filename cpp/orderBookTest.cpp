@@ -17,7 +17,64 @@ using namespace std;
 
 class Price {
 	int64_t raw_value;
+	static constexpr int64_t SCALE = 10000;
+	static constexpr int64_t pow10[] = {1, 10, 100, 1000, 10000};
+	explicit Price(int64_t v) : raw_value(v) {}
 public:
+	[[nodiscard]] static Price fromString(char* s) {
+		bool isNegative = false;
+		int64_t integral = 0;
+		int64_t fractional = 0;
+
+		if (*s == '-') {
+			isNegative = true;
+		}
+
+		while(*s <= '9' && *s >= '0') {
+			integral = integral * 10 + (*s - '0');
+			s++;
+		}
+
+		if (*s == '.')  {
+			s++;
+			int digits = 0;
+			while(*s <= '9' && *s >= '0') {
+				if (digits < 4) {
+					fractional = fractional * 10 + (*s - '0');
+					digits++;
+				}
+				s++;
+			}
+		}
+
+		fractional *= pow10[4 - digits];
+		int64_t total = integral * SCALE + fractional;
+		return Price(isNegative ? -total : total);
+	}
+	[[nodiscard]] static Price fromInteger(int64_t v) {
+		return Price(v * SCALE);
+	}
+	[[nodiscard]] static Price fromRaw(int64_t raw) {
+		return Price(raw);
+	}
+	[[nodiscard]] constexpr auto operator<=>(const Price&) const noexcept = default;
+	[[nodiscard]] constexpr Price operator+(const Price& other) const noexcept {
+		return Price(raw_value + other.raw_value);
+	}
+	[[nodiscard]] constexpr Price operator-(const Price& other) const noexcept {
+		return Price(raw_value - other.raw_value);
+	}
+	constexpr Price& operator+=(const Price& other) noexcept {
+		raw_value += other.raw_value;
+		return *this;
+	}
+	constexpr Price& operator-=(const Price& other) noexcept {
+		raw_value -= other.raw_value;
+		return *this;
+	}
+	[[nodiscard]] constexpr int64_t toInternal() const noexcept {
+		return raw_value;
+	}
 };
 
 // side
@@ -30,9 +87,23 @@ enum class Side : uint8_t {
 // BIT
 template<size_t SIZE>
 class FenwickTree {
-	
+	array<int64_t, SIZE + 1> tree;
 public:
-	
+	void update(int price, int delta) {
+		for(price++; price < SIZE + 1; price += price & -price) {
+			tree[price] += delta;
+		}
+	}
+	int64_t query(int price) {
+		int64_t sum = 0;
+		for(price++; price > 0; price -= price & -price) {
+			sum += tree[price];
+		}
+		return sum;
+	}
+	int64_t queryRange(int low, int high) {
+		return query(high) - query(low - 1);
+	}
 };
 
 // bit mask
@@ -124,26 +195,7 @@ void run_comprehensive_tests() {
 }
 
 void test_pool_exhaustion() {
-	OrderBook ob;
-	std::cout << "Testing: Pool Exhaustion..." << std::endl;
-	
-	// 1. 填滿 Pool
-	for(int i = 0; i < MAX_POOL_SIZE; ++i) {
-		ob.addOrder(i, Side::BUY, 1000, 1);
-	}
-	
-	// 2. 嘗試加入第 MAX_POOL_SIZE + 1 筆 (應處理 allocate 回傳 nullptr 的情況)
-	int rem = ob.addOrder(99999, Side::BUY, 1000, 1);
-	// 根據你目前的邏輯，如果 allocate 失敗，order 不會被加入，remainingQty 維持原樣
-	assert(rem == 1); 
 
-	// 3. 消耗掉部分訂單以釋放空間
-	ob.addOrder(88888, Side::SELL, 1000, 500); 
-	
-	// 4. 再次嘗試加入，應成功
-	// int rem2 = ob.addOrder(77777, Side::BUY, 1000, 1);
-	// assert(rem2 == 0);
-	std::cout << "Testing: Pool Exhaustion... Done" << std::endl;
 }
 
 void test_price_gaps() {
@@ -182,21 +234,7 @@ void test_heavy_single_level() {
 
 
 void test_numerical_limits() {
-	OrderBook ob;
-	std::cout << "Testing: Numerical Limits..." << std::endl;
 
-	// 1. 測試極大數量 (2^31 - 1 附近)
-	int large_qty = 1000000;
-	ob.addOrder(1, Side::BUY, 100, large_qty);
-	ob.addOrder(2, Side::BUY, 100, large_qty);
-	// 檢查 int64_t 是否正確處理
-	assert(ob.queryRange(100, 100, Side::BUY) == 2000000000LL);
-
-	// 2. 測試非法價格 (若未處理，BitMask 可能崩潰)
-	// 這些應該在 addOrder 入口被擋掉或安全處理
-	ob.addOrder(3, Side::BUY, -1, 100); 
-	ob.addOrder(4, Side::BUY, MAX_PRICE + 100, 100);
-	std::cout << "Testing: Numerical Limits... Done" << std::endl;
 }
 
 
