@@ -9,6 +9,8 @@
 #include <vector>
 #include <cstddef>
 #include <cstdint>
+#include <compare> 
+#include <stdexcept>
 
 constexpr int MAX_POOL_SIZE = 20000000;
 constexpr int MAX_PRICE = 10000000;
@@ -53,20 +55,23 @@ using namespace std;
 // 		return true;
 // 	}
 // };
+
+
 class Price {
 private:
-	int64_t raw_value;
+	int64_t raw_value; 
 	static constexpr int64_t SCALE = 10000;
 	static constexpr int64_t POW10[] = {1, 10, 100, 1000, 10000};
-	explicit Price(int64_t raw) : raw_value(raw) {}
-
+	explicit constexpr Price(int64_t raw) noexcept : raw_value(raw) {}
 public:
-	Price() : raw_value(0) {}
-
-	static Price fromInteger(int64_t v) {
+	constexpr Price() noexcept : raw_value(0) {}
+	[[nodiscard]] static constexpr Price fromInteger(int64_t v) noexcept {
 		return Price(v * SCALE);
 	}
-	static Price fromString(const char* s) {
+	[[nodiscard]] static constexpr Price fromRaw(int64_t v) noexcept {
+		return Price(v);
+	}
+	[[nodiscard]] static constexpr Price fromString(const char* s) {
 		int64_t int_part = 0;
 		int64_t frac_part = 0;
 		bool negative = false;
@@ -94,18 +99,27 @@ public:
 		}
 
 		frac_part *= POW10[4 - digits];
-
 		int64_t total = int_part * SCALE + frac_part;
 		return Price(negative ? -total : total);
 	}
-
-	int64_t toInternal() const { return raw_value; }
-	bool operator<(const Price& other) const { return raw_value < other.raw_value; }
-	bool operator>(const Price& other) const { return raw_value > other.raw_value; }
-	bool operator==(const Price& other) const { return raw_value == other.raw_value; }
-	
-	Price operator+(const Price& other) const { return Price(raw_value + other.raw_value); }
-	Price operator-(const Price& other) const { return Price(raw_value - other.raw_value); }
+	[[nodiscard]] constexpr auto operator<=>(const Price&) const noexcept = default;
+	[[nodiscard]] constexpr Price operator+(const Price& other) const noexcept {
+		return Price(raw_value + other.raw_value);
+	}
+	[[nodiscard]] constexpr Price operator-(const Price& other) const noexcept {
+		return Price(raw_value - other.raw_value);
+	}
+	constexpr Price& operator+=(const Price& other) noexcept {
+		raw_value += other.raw_value;
+		return *this;
+	}
+	constexpr Price& operator-=(const Price& other) noexcept {
+		raw_value -= other.raw_value;
+		return *this;
+	}
+	[[nodiscard]] constexpr int64_t toInternal() const noexcept {
+		return raw_value;
+	}
 };
 
 constexpr int64_t Price::POW10[];
