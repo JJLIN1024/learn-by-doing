@@ -88,7 +88,6 @@ struct HugeMem {
     ~HugeMem() { munlock(addr, size); munmap(addr, size); }
 };
 
-// --- 3. 核心資料結構 ---
 struct alignas(32) OrderNode {
     uint64_t id;
     int64_t qty;
@@ -189,7 +188,6 @@ struct FlatFenwick {
     }
 };
 
-// --- 4. HFT OrderBook ---
 class OrderBook {
     struct DataLayout {
         OrderNode nodes[MAX_POOL_SIZE];
@@ -200,8 +198,7 @@ class OrderBook {
         
         BitMask<MAX_PRICE_LEVELS> bid_mask;
         BitMask<MAX_PRICE_LEVELS> ask_mask;
-        
-        // 統計用 (為了讓測試通過)
+
         FlatFenwick<MAX_PRICE_LEVELS> bid_tree;
         FlatFenwick<MAX_PRICE_LEVELS> ask_tree;
     };
@@ -212,13 +209,11 @@ class OrderBook {
 public:
     OrderBook() : memory(sizeof(DataLayout)) {
         d = new (memory.addr) DataLayout();
-        // 初始化 Free List
         for (uint32_t i = 0; i < MAX_POOL_SIZE - 1; ++i) d->nodes[i].next = i + 1;
         d->nodes[MAX_POOL_SIZE - 1].next = NULL_IDX;
         d->free_head = 0;
     }
 
-    // --- API: Add Order ---
     int64_t addOrder(uint64_t id, Side side, int64_t raw_price, int64_t raw_qty) {
         if (raw_price < 0 || raw_price >= (int64_t)MAX_PRICE_LEVELS) return raw_qty; // 簡單邊界檢查
         
